@@ -51,13 +51,20 @@ const DESCRIBE: &str = r#"{
   "maturity": "discovered",
   "openroad_pin": "@OPENROAD_PIN@",
   "provenance_limitations": [
-    "`run` is not implemented yet and refuses with exit 3; `write` writes the intent already in the database."
+    "input_hash covers the argument vector, not the content of the database it names.",
+    "`write` writes the power intent already in the database: power domains, logic ports, power switches with their cell map, isolation and level-shifter strategies, each section in the database's creation order. It matches the reference's own UPF writer line for line, after the first line (which names the writing tool), on 6 of 6 cases: every UPF in the reference's regression data and one written to reach what those do not (objects declared out of name order, a switch state with no supply port, an acknowledge with no net, a sense with no signal, thresholds at an exact binary tie).",
+    "A power switch with no cell map is written without `map_power_switch`; the reference's writer stops on one.",
+    "`run` (reading a UPF file into the database) is not implemented yet and refuses with exit 3."
   ],
   "invocation": { "args_template": ["write", "{design}", "-o", "{out}"], "emits_json": false },
-  "inputs": { "type": "object", "properties": { "design": { "type": "string", "description": "design database (.odb)" }, "out": { "type": "string", "description": "UPF file to write" } }, "required": ["design"] },
-  "artifacts": [ { "name": "upf", "from_input": "out", "format": "upf" } ],
-  "assertion": { "id": "upf-ok", "field": "status", "pass_when": { "equals": "ok" } },
-  "consumes": []
+  "inputs": { "type": "object", "properties": { "design": { "type": "string", "description": "design database (.odb)" }, "out": { "type": "string", "description": "UPF file to write" } }, "required": ["design", "out"] },
+  "artifacts": [ { "role": "upf", "from_arg": "out" } ],
+  "assertion": { "id": "upf-written", "not_applicable": true },
+  "consumes": ["odb"],
+  "threads": {
+    "parallel": false,
+    "guidance": "Runs on one thread; there is no thread option. Several jobs can run side by side, one core each."
+  }
 }"#;
 
 /// The reference commit the database binding was built against. The descriptor carries a TOKEN in
@@ -162,6 +169,18 @@ mod tests {
         // Anything else is read as `discovered` and every verdict becomes `unknown`.
         let m = d["maturity"].as_str().unwrap();
         assert!(["discovered", "structured", "workflow-validated"].contains(&m), "{m}");
+    }
+
+    /// The schema's predicates and artifact sources, not look-alikes: an `equals` predicate or an
+    /// artifact without `field`/`from_arg` is dropped by the registry without a word.
+    #[test]
+    fn the_descriptor_uses_the_schemas_own_words() {
+        let d: serde_json::Value = serde_json::from_str(&describe()).unwrap();
+        assert_eq!(d["assertion"]["not_applicable"], true, "write establishes no engineering claim");
+        for a in d["artifacts"].as_array().unwrap() {
+            assert!(a["role"].is_string() && (a["field"].is_string() || a["from_arg"].is_string()), "{a}");
+        }
+        assert_eq!(d["threads"]["parallel"], false);
     }
 
     #[test]

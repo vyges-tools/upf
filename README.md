@@ -2,8 +2,8 @@
 
 Power intent (UPF) for designs with several power domains: domains, isolation, level shifters, power switches.
 
-> **Status: in development.** Every command currently refuses with exit 3. Commands are enabled one
-> at a time as each is validated.
+> **Status: in development.** `write` is available: it writes the power intent held in a design
+> database as UPF. `run` (reading UPF into the database) refuses with exit 3 until it is built.
 
 ## Why this exists
 

@@ -16,7 +16,7 @@ serde_json = "1"
 vyges-events = { git = "https://github.com/vyges-tools/events", branch = "main", default-features = false }
 # The design database. Optional so the writer can be built and tested without it; ON by default so
 # a plain `cargo test` covers the database read too.
-vyges-opendb = { git = "https://github.com/vyges-tools/opendb.git", branch = "main", optional = true }
+vyges-opendb = { git = "https://github.com/vyges-tools/opendb.git", branch = "main", optional = true, features = ["gen-write"] }
 
 [features]
 default = ["odb"]

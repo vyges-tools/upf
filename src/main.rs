@@ -19,7 +19,8 @@ const USAGE: &str = "\
 vyges physical upf — power intent (UPF) for designs with several power domains: domains, isolation, level shifters, power switches
 
 USAGE:
-  vyges physical upf run    <design.odb> <intent.upf> -o OUT.odb  read and apply the power intent
+  vyges physical upf run    <design.odb> <intent.upf> -o OUT.odb [--trace]
+                                                    read the power intent into the database
   vyges physical upf write  <design.odb> [-o FILE]  write the database's power intent as UPF
   vyges physical upf --describe
   vyges physical upf --help
@@ -30,6 +31,7 @@ OPTIONS:
   --json                machine-readable output instead of the text report
   -q, --quiet           suppress non-essential output
   -v, --verbose         extra detail on stderr
+  --trace               run: one VYG-UPF line per database-layer call, in call order
   --describe            print a machine-readable JSON description of the command
   --bug-report          file a bug (central: vyges/community)
   --feature-request     request a feature (central)
@@ -54,7 +56,8 @@ const DESCRIBE: &str = r#"{
     "input_hash covers the argument vector, not the content of the database it names.",
     "`write` writes the power intent already in the database: power domains, logic ports, power switches with their cell map, isolation and level-shifter strategies, each section in the database's creation order. It matches the reference's own UPF writer line for line, after the first line (which names the writing tool), on 6 of 6 cases: every UPF in the reference's regression data and one written to reach what those do not (objects declared out of name order, a switch state with no supply port, an acknowledge with no net, a sense with no signal, thresholds at an exact binary tie).",
     "A power switch with no cell map is written without `map_power_switch`; the reference's writer stops on one.",
-    "`run` (reading a UPF file into the database) is not implemented yet and refuses with exit 3."
+    "`run` reads a UPF file into the database as the reference's `read_upf` does: the ten UPF commands (create_power_domain, create_logic_port, create_power_switch, set_isolation, use_interface_cell, set_domain_area, map_power_switch, set_level_shifter, set_domain_voltage, set_level_shifter_cell) with the reference's argument rules (a key may be abbreviated to a unique prefix; repeatable switch options keep their order), defaults and warnings. A UPF file is Tcl: a variable or command substitution, or any other Tcl command, is refused (exit 3), not guessed at. An error the reference stops on stops the read with exit 2 and writes nothing.",
+    "A level shifter's cell (`set_level_shifter_cell`) is held in memory only, as in the reference: it is not part of the stored database, so it is gone from the database `run` writes."
   ],
   "invocation": { "args_template": ["write", "{design}", "-o", "{out}"], "emits_json": false },
   "inputs": { "type": "object", "properties": { "design": { "type": "string", "description": "design database (.odb)" }, "out": { "type": "string", "description": "UPF file to write" } }, "required": ["design", "out"] },
@@ -127,6 +130,64 @@ fn write(args: &[String]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// `run <design.odb> <intent.upf> -o OUT.odb [--trace]`: the intent read into the database, which
+/// is written to OUT only when the whole file was read.
+fn run(args: &[String]) -> ExitCode {
+    let mut pos = Vec::new();
+    let mut out = None;
+    let mut trace = false;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "-o" => match it.next() {
+                Some(f) => out = Some(f.clone()),
+                None => return usage_error("-o needs a file"),
+            },
+            "--trace" => trace = true,
+            "-q" | "--quiet" | "-v" | "--verbose" => {}
+            f if f.starts_with('-') => return usage_error(&format!("unknown option `{f}`")),
+            f => pos.push(f.to_string()),
+        }
+    }
+    let ([design, upf], Some(out)) = (<[String; 2]>::try_from(pos).unwrap_or_default(), out) else {
+        return usage_error("run needs a design database, a UPF file and -o OUT.odb");
+    };
+    if design.is_empty() {
+        return usage_error("run needs a design database, a UPF file and -o OUT.odb");
+    }
+    let mut db = match vyges_opendb::Db::open(&design) {
+        Ok(db) => db,
+        Err(e) => return input_error(&format!("cannot read {design}: {e}")),
+    };
+    let src = match std::fs::read_to_string(&upf) {
+        Ok(s) => s,
+        Err(e) => return input_error(&format!("cannot read {upf}: {e}")),
+    };
+    let mut log = vyges_upf::read::Log { trace, echo: true, ..Default::default() };
+    match vyges_upf::read::read_upf(&mut db, &src, &mut log) {
+        Ok(n) => {
+            if let Err(e) = db.write(&out) {
+                return input_error(&format!("cannot write {out}: {e}"));
+            }
+            eprintln!("vyges-upf: {n} command(s) read from {upf}, {} warning(s); wrote {out}", log.warnings);
+            ExitCode::SUCCESS
+        }
+        Err(stop) => {
+            use vyges_upf::tcl::Stop;
+            let code = matches!(stop, Stop::Refused(_));
+            // The database's logger has printed its own error already.
+            if !matches!(stop, Stop::Database { .. }) {
+                println!("{stop}");
+            }
+            vyges_events::emit(
+                &vyges_events::Event::new("vyges-upf", vyges_events::Severity::Error, format!("{upf}: {stop}; nothing written"))
+                    .with_code(if code { "UPF-REFUSED" } else { "UPF-INPUT" }),
+            );
+            ExitCode::from(if code { 3 } else { 2 })
+        }
+    }
+}
+
 fn input_error(msg: &str) -> ExitCode {
     vyges_events::emit(&vyges_events::Event::new("vyges-upf", vyges_events::Severity::Error, msg.to_string()).with_code("UPF-INPUT"));
     ExitCode::from(2)
@@ -149,6 +210,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Some("write") => write(&args[1..]),
+        Some("run") => run(&args[1..]),
         Some(cmd) if COMMANDS.contains(&cmd) => refuse(cmd),
         Some(other) => {
             eprintln!("vyges-upf: unknown command `{other}`\n\n{USAGE}");

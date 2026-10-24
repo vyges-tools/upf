@@ -12,6 +12,11 @@
 #[cfg(feature = "odb")]
 pub mod odb;
 
+/// `run`: a UPF file read into the database, through the reference's three layers.
+pub mod read;
+/// The Tcl a UPF file is written in, and the shared argument parsing.
+pub mod tcl;
+
 /// The power intent of one block, each list in the database's own order.
 ///
 /// 🔑 **Order is output.** The writer walks each list as given, and the database keeps every one of

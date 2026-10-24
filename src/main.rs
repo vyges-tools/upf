@@ -20,7 +20,7 @@ vyges physical upf — power intent (UPF) for designs with several power domains
 
 USAGE:
   vyges physical upf run    <design.odb> <intent.upf> -o OUT.odb  read and apply the power intent
-  vyges physical upf write  <design.odb>  write the database's power intent as UPF
+  vyges physical upf write  <design.odb> [-o FILE]  write the database's power intent as UPF
   vyges physical upf --describe
   vyges physical upf --help
   vyges physical upf --version
@@ -41,7 +41,7 @@ EXIT STATUS:
   3  refused — this build does not implement the command yet
 ";
 
-/// The commands this engine will answer. Each is refused (exit 3) until its stage is built.
+/// The commands this engine will answer. One not yet built is refused (exit 3).
 pub const COMMANDS: &[&str] = &["run", "write"];
 
 const DESCRIBE: &str = r#"{
@@ -49,15 +49,25 @@ const DESCRIBE: &str = r#"{
   "name": "upf",
   "summary": "Power intent (UPF) for designs with several power domains: domains, isolation, level shifters, power switches.",
   "maturity": "discovered",
+  "openroad_pin": "@OPENROAD_PIN@",
   "provenance_limitations": [
-    "No command is implemented yet: every command refuses with exit 3."
+    "`run` is not implemented yet and refuses with exit 3; `write` writes the intent already in the database."
   ],
-  "invocation": { "args_template": ["run"], "emits_json": true },
-  "inputs": { "type": "object", "properties": {} },
-  "artifacts": [],
+  "invocation": { "args_template": ["write", "{design}", "-o", "{out}"], "emits_json": false },
+  "inputs": { "type": "object", "properties": { "design": { "type": "string", "description": "design database (.odb)" }, "out": { "type": "string", "description": "UPF file to write" } }, "required": ["design"] },
+  "artifacts": [ { "name": "upf", "from_input": "out", "format": "upf" } ],
   "assertion": { "id": "upf-ok", "field": "status", "pass_when": { "equals": "ok" } },
   "consumes": []
 }"#;
+
+/// The reference commit the database binding was built against. The descriptor carries a TOKEN in
+/// source and the build's value at run time, so it can never claim a pin the binary does not have.
+const CRATE_PIN: &str = vyges_opendb::OPENROAD_PIN;
+const PIN_TOKEN: &str = "@OPENROAD_PIN@";
+
+fn describe() -> String {
+    DESCRIBE.replace(PIN_TOKEN, CRATE_PIN)
+}
 
 fn refuse(what: &str) -> ExitCode {
     vyges_events::emit(
@@ -65,6 +75,54 @@ fn refuse(what: &str) -> ExitCode {
             .with_code("UPF-REFUSED"),
     );
     ExitCode::from(3)
+}
+
+fn usage_error(msg: &str) -> ExitCode {
+    eprintln!("vyges-upf: {msg}\n\n{USAGE}");
+    ExitCode::from(2)
+}
+
+/// `write <design.odb> [-o FILE]`: the database's power intent as UPF, to FILE or stdout.
+fn write(args: &[String]) -> ExitCode {
+    let mut design = None;
+    let mut out = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "-o" => match it.next() {
+                Some(f) => out = Some(f.clone()),
+                None => return usage_error("-o needs a file"),
+            },
+            "-q" | "--quiet" | "-v" | "--verbose" => {}
+            f if f.starts_with('-') => return usage_error(&format!("unknown option `{f}`")),
+            f if design.is_none() => design = Some(f.to_string()),
+            f => return usage_error(&format!("unexpected argument `{f}`")),
+        }
+    }
+    let Some(design) = design else { return usage_error("write needs a design database") };
+    let db = match vyges_opendb::Db::open(&design) {
+        Ok(db) => db,
+        Err(e) => return input_error(&format!("cannot read {design}: {e}")),
+    };
+    let pi = match vyges_upf::odb::read_power_intent(&db) {
+        Ok(pi) => pi,
+        Err(e) => return input_error(&format!("cannot read the power intent of {design}: {e}")),
+    };
+    let text = vyges_upf::write_upf(&pi);
+    match out {
+        Some(f) => {
+            if let Err(e) = std::fs::write(&f, text) {
+                return input_error(&format!("cannot write {f}: {e}"));
+            }
+        }
+        None => print!("{text}"),
+    }
+    ExitCode::SUCCESS
+}
+
+fn input_error(msg: &str) -> ExitCode {
+    vyges_events::emit(&vyges_events::Event::new("vyges-upf", vyges_events::Severity::Error, msg.to_string()).with_code("UPF-INPUT"));
+    ExitCode::from(2)
 }
 
 fn main() -> ExitCode {
@@ -80,9 +138,10 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Some("--describe") => {
-            println!("{DESCRIBE}");
+            println!("{}", describe());
             ExitCode::SUCCESS
         }
+        Some("write") => write(&args[1..]),
         Some(cmd) if COMMANDS.contains(&cmd) => refuse(cmd),
         Some(other) => {
             eprintln!("vyges-upf: unknown command `{other}`\n\n{USAGE}");
@@ -97,12 +156,22 @@ mod tests {
 
     #[test]
     fn the_descriptor_is_valid_json_with_a_legal_maturity() {
-        let d: serde_json::Value = serde_json::from_str(DESCRIBE).expect("descriptor is valid JSON");
+        let d: serde_json::Value = serde_json::from_str(&describe()).expect("descriptor is valid JSON");
         assert_eq!(d["schema"], "vyges-tool-descriptor/1.1");
         assert_eq!(d["name"], "upf");
         // Anything else is read as `discovered` and every verdict becomes `unknown`.
         let m = d["maturity"].as_str().unwrap();
         assert!(["discovered", "structured", "workflow-validated"].contains(&m), "{m}");
+    }
+
+    #[test]
+    fn the_descriptor_reports_the_built_pin_and_the_source_keeps_the_token() {
+        // `--pins` and the box's pin check read this field; a literal would go stale on a re-pin.
+        let d: serde_json::Value = serde_json::from_str(&describe()).unwrap();
+        assert_eq!(d["openroad_pin"], CRATE_PIN);
+        assert_eq!(CRATE_PIN.len(), 40, "a full commit SHA");
+        let raw: serde_json::Value = serde_json::from_str(DESCRIBE).unwrap();
+        assert_eq!(raw["openroad_pin"], PIN_TOKEN);
     }
 
     #[test]

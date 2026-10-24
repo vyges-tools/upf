@@ -14,6 +14,8 @@ pub mod odb;
 
 /// `run`: a UPF file read into the database, through the reference's three layers.
 pub mod read;
+/// `eval`: the power intent made physical (regions, groups, hierarchy), as the floorplan does it.
+pub mod eval;
 /// The Tcl a UPF file is written in, and the shared argument parsing.
 pub mod tcl;
 

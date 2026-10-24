@@ -22,6 +22,9 @@ USAGE:
   vyges physical upf run    <design.odb> <intent.upf> -o OUT.odb [--trace]
                                                     read the power intent into the database
   vyges physical upf write  <design.odb> [-o FILE]  write the database's power intent as UPF
+  vyges physical upf eval   <design.odb> -o OUT.odb [--trace]
+                                                    make the power intent physical: a fence region
+                                                    and group per domain, the domain hierarchy
   vyges physical upf --describe
   vyges physical upf --help
   vyges physical upf --version
@@ -31,7 +34,8 @@ OPTIONS:
   --json                machine-readable output instead of the text report
   -q, --quiet           suppress non-essential output
   -v, --verbose         extra detail on stderr
-  --trace               run: one VYG-UPF line per database-layer call, in call order
+  --trace               run: one VYG-UPF line per database-layer call, in call order;
+                        eval: one VYGEV line per database write, in the order made
   --describe            print a machine-readable JSON description of the command
   --bug-report          file a bug (central: vyges/community)
   --feature-request     request a feature (central)
@@ -44,7 +48,7 @@ EXIT STATUS:
 ";
 
 /// The commands this engine will answer. One not yet built is refused (exit 3).
-pub const COMMANDS: &[&str] = &["run", "write"];
+pub const COMMANDS: &[&str] = &["run", "write", "eval"];
 
 const DESCRIBE: &str = r#"{
   "schema": "vyges-tool-descriptor/1.1",
@@ -188,6 +192,59 @@ fn run(args: &[String]) -> ExitCode {
     }
 }
 
+fn eval(args: &[String]) -> ExitCode {
+    let mut pos = Vec::new();
+    let mut out = None;
+    let mut trace = false;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "-o" => match it.next() {
+                Some(f) => out = Some(f.clone()),
+                None => return usage_error("-o needs a file"),
+            },
+            "--trace" => trace = true,
+            "-q" | "--quiet" | "-v" | "--verbose" => {}
+            f if f.starts_with('-') => return usage_error(&format!("unknown option `{f}`")),
+            f => pos.push(f.to_string()),
+        }
+    }
+    let ([design], Some(out)) = (<[String; 1]>::try_from(pos).unwrap_or_default(), out) else {
+        return usage_error("eval needs a design database and -o OUT.odb");
+    };
+    if design.is_empty() {
+        return usage_error("eval needs a design database and -o OUT.odb");
+    }
+    let mut db = match vyges_opendb::Db::open(&design) {
+        Ok(db) => db,
+        Err(e) => return input_error(&format!("cannot read {design}: {e}")),
+    };
+    let mut log = vyges_upf::read::Log { trace, echo: true, ..Default::default() };
+    match vyges_upf::eval::eval_upf(&mut db, &mut log) {
+        Ok(done) => {
+            if let Err(e) = db.write(&out) {
+                return input_error(&format!("cannot write {out}: {e}"));
+            }
+            // The reference's floorplan ignores a false return and carries on; so does this.
+            let how = if done { "evaluated" } else { "evaluation stopped early" };
+            eprintln!("vyges-upf: power intent {how}, {} warning(s); wrote {out}", log.warnings);
+            ExitCode::SUCCESS
+        }
+        Err(stop) => {
+            use vyges_upf::tcl::Stop;
+            let code = matches!(stop, Stop::Refused(_));
+            if !matches!(stop, Stop::Database { .. }) {
+                println!("{stop}");
+            }
+            vyges_events::emit(
+                &vyges_events::Event::new("vyges-upf", vyges_events::Severity::Error, format!("{design}: {stop}; nothing written"))
+                    .with_code(if code { "UPF-REFUSED" } else { "UPF-INPUT" }),
+            );
+            ExitCode::from(if code { 3 } else { 2 })
+        }
+    }
+}
+
 fn input_error(msg: &str) -> ExitCode {
     vyges_events::emit(&vyges_events::Event::new("vyges-upf", vyges_events::Severity::Error, msg.to_string()).with_code("UPF-INPUT"));
     ExitCode::from(2)
@@ -211,6 +268,7 @@ fn main() -> ExitCode {
         }
         Some("write") => write(&args[1..]),
         Some("run") => run(&args[1..]),
+        Some("eval") => eval(&args[1..]),
         Some(cmd) if COMMANDS.contains(&cmd) => refuse(cmd),
         Some(other) => {
             eprintln!("vyges-upf: unknown command `{other}`\n\n{USAGE}");

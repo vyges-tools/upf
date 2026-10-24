@@ -78,13 +78,13 @@ pub struct Log {
 }
 
 impl Log {
-    fn push(&mut self, l: String) {
+    pub(crate) fn push(&mut self, l: String) {
         if self.echo {
             println!("{l}");
         }
         self.lines.push(l);
     }
-    fn warn(&mut self, tool: &str, id: u32, msg: String) {
+    pub(crate) fn warn(&mut self, tool: &str, id: u32, msg: String) {
         self.warnings += 1;
         self.push(format!("[WARNING {tool}-{id:04}] {msg}"));
     }
@@ -92,7 +92,7 @@ impl Log {
 
 /// A database call failing stops the read: as the database's own error when it carries a message
 /// id (`ODB-0154: ...`, already printed by its logger), otherwise as a refusal naming the database.
-fn db<T>(r: Result<T, String>) -> Result<T, Stop> {
+pub(crate) fn db<T>(r: Result<T, String>) -> Result<T, Stop> {
     r.map_err(|e| {
         let coded = e.split_once(": ").and_then(|(code, msg)| {
             let (tool, id) = code.split_once('-')?;

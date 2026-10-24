@@ -233,3 +233,74 @@ impl crate::read::UpfStore for Db {
 fn e<T>(r: Result<T>) -> std::result::Result<T, String> {
     r.map_err(|x| x.to_string())
 }
+
+fn opt(s: String) -> Option<String> {
+    (!s.is_empty()).then_some(s)
+}
+
+/// The evaluation's database calls, one binding call each.
+impl crate::eval::EvalStore for Db {
+    fn logic_ports(&self) -> std::result::Result<Vec<String>, String> {
+        Ok(self.block_get_logic_ports())
+    }
+    fn power_domains(&self) -> std::result::Result<Vec<String>, String> {
+        Ok(self.block_get_power_domains())
+    }
+    fn domain_elements(&self, pd: &str) -> std::result::Result<Vec<String>, String> {
+        e(self.pwr_domain_elements(pd))
+    }
+    fn domain_area(&self, pd: &str) -> std::result::Result<Option<[i32; 4]>, String> {
+        e(self.pwr_domain_area(pd))
+    }
+    fn domain_is_top(&self, pd: &str) -> std::result::Result<bool, String> {
+        Ok(self.pwr_domain_is_top(pd))
+    }
+    fn domain_parent(&self, pd: &str) -> std::result::Result<Option<String>, String> {
+        Ok(opt(self.pwr_domain_get_parent(pd)))
+    }
+    fn domain_group(&self, pd: &str) -> std::result::Result<Option<String>, String> {
+        Ok(opt(self.pwr_domain_get_group(pd)))
+    }
+    fn insertion_strategies(&self) -> std::result::Result<usize, String> {
+        Ok(self.block_get_isolations().len() + self.block_get_level_shifters().len())
+    }
+    fn module_children(&self, module: &str) -> std::result::Result<Vec<(String, String)>, String> {
+        e(self.module_children_paths(module))
+    }
+    fn inst_module_paths(&self) -> std::result::Result<Vec<(String, String)>, String> {
+        e(Db::inst_module_paths(self))
+    }
+    fn net_create(&mut self, name: &str) -> std::result::Result<bool, String> {
+        e(self.net_try_create(name))
+    }
+    fn bterm_create(&mut self, net: &str, name: &str) -> std::result::Result<bool, String> {
+        e(self.bterm_try_create(net, name))
+    }
+    fn set_top(&mut self, pd: &str, top: bool) -> std::result::Result<(), String> {
+        e(self.pwr_domain_set_top(pd, top))
+    }
+    fn set_parent(&mut self, pd: &str, parent: &str) -> std::result::Result<(), String> {
+        e(self.pwr_domain_set_parent(pd, parent))
+    }
+    fn set_group(&mut self, pd: &str, group: &str) -> std::result::Result<(), String> {
+        e(self.pwr_domain_set_group(pd, group))
+    }
+    fn region_create(&mut self, name: &str) -> std::result::Result<bool, String> {
+        e(Db::region_create(self, name))
+    }
+    fn region_set_type(&mut self, region: &str, kind: &str) -> std::result::Result<(), String> {
+        e(Db::region_set_type(self, region, kind))
+    }
+    fn region_add_boundary(&mut self, region: &str, a: [i32; 4]) -> std::result::Result<bool, String> {
+        e(Db::region_add_boundary(self, region, a[0], a[1], a[2], a[3]))
+    }
+    fn group_create(&mut self, region: &str, name: &str) -> std::result::Result<bool, String> {
+        e(self.group_create_in_region(region, name))
+    }
+    fn group_set_type(&mut self, group: &str, kind: &str) -> std::result::Result<(), String> {
+        e(Db::group_set_type(self, group, kind))
+    }
+    fn group_add_inst(&mut self, group: &str, inst: &str) -> std::result::Result<(), String> {
+        e(Db::group_add_inst(self, group, inst))
+    }
+}

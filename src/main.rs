@@ -22,9 +22,10 @@ USAGE:
   vyges physical upf run    <design.odb> <intent.upf> -o OUT.odb [--trace]
                                                     read the power intent into the database
   vyges physical upf write  <design.odb> [-o FILE]  write the database's power intent as UPF
-  vyges physical upf eval   <design.odb> -o OUT.odb [--trace]
+  vyges physical upf eval   <design.odb> -o OUT.odb [--liberty FILE]... [--trace]
                                                     make the power intent physical: a fence region
-                                                    and group per domain, the domain hierarchy
+                                                    and group per domain, the domain hierarchy,
+                                                    isolation cells and level shifters between domains
   vyges physical upf --describe
   vyges physical upf --help
   vyges physical upf --version
@@ -34,6 +35,8 @@ OPTIONS:
   --json                machine-readable output instead of the text report
   -q, --quiet           suppress non-essential output
   -v, --verbose         extra detail on stderr
+  --liberty FILE        eval: a Liberty library (repeatable, in read order): inverters, cell
+                        areas and isolation pins for the cells eval inserts
   --trace               run: one VYG-UPF line per database-layer call, in call order;
                         eval: one VYGEV line per database write, in the order made
   --describe            print a machine-readable JSON description of the command
@@ -196,6 +199,7 @@ fn eval(args: &[String]) -> ExitCode {
     let mut pos = Vec::new();
     let mut out = None;
     let mut trace = false;
+    let mut liberty = Vec::new();
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -203,10 +207,25 @@ fn eval(args: &[String]) -> ExitCode {
                 Some(f) => out = Some(f.clone()),
                 None => return usage_error("-o needs a file"),
             },
+            "--liberty" => match it.next() {
+                Some(f) => liberty.push(f.clone()),
+                None => return usage_error("--liberty needs a file"),
+            },
             "--trace" => trace = true,
             "-q" | "--quiet" | "-v" | "--verbose" => {}
             f if f.starts_with('-') => return usage_error(&format!("unknown option `{f}`")),
             f => pos.push(f.to_string()),
+        }
+    }
+    let mut libs = vyges_upf::eval::Liberty::default();
+    for f in &liberty {
+        let read = std::fs::read_to_string(f)
+            .map_err(|e| e.to_string())
+            .and_then(|text| vyges_sta::liberty_parse::parse(&text))
+            .and_then(|g| vyges_sta::liberty::Library::read(&g));
+        match read {
+            Ok(lib) => libs.0.push(lib),
+            Err(e) => return input_error(&format!("cannot read {f}: {e}")),
         }
     }
     let ([design], Some(out)) = (<[String; 1]>::try_from(pos).unwrap_or_default(), out) else {
@@ -220,7 +239,7 @@ fn eval(args: &[String]) -> ExitCode {
         Err(e) => return input_error(&format!("cannot read {design}: {e}")),
     };
     let mut log = vyges_upf::read::Log { trace, echo: true, ..Default::default() };
-    match vyges_upf::eval::eval_upf(&mut db, &mut log) {
+    match vyges_upf::eval::eval_upf(&mut db, &libs, &mut log) {
         Ok(done) => {
             if let Err(e) = db.write(&out) {
                 return input_error(&format!("cannot write {out}: {e}"));

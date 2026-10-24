@@ -261,8 +261,72 @@ impl crate::eval::EvalStore for Db {
     fn domain_group(&self, pd: &str) -> std::result::Result<Option<String>, String> {
         Ok(opt(self.pwr_domain_get_group(pd)))
     }
-    fn insertion_strategies(&self) -> std::result::Result<usize, String> {
-        Ok(self.block_get_isolations().len() + self.block_get_level_shifters().len())
+    fn domain_voltage(&self, pd: &str) -> std::result::Result<f32, String> {
+        Ok(self.pwr_domain_get_voltage(pd))
+    }
+    fn domain_isolations(&self, pd: &str) -> std::result::Result<Vec<String>, String> {
+        e(self.pwr_domain_isolations(pd))
+    }
+    fn domain_level_shifters(&self, pd: &str) -> std::result::Result<Vec<String>, String> {
+        e(self.pwr_domain_level_shifters(pd))
+    }
+    fn group_insts(&self, group: &str) -> std::result::Result<Vec<String>, String> {
+        Ok(self.group_get_insts(group))
+    }
+    fn inst_master(&self, inst: &str) -> std::result::Result<String, String> {
+        Ok(self.inst_get_master(inst))
+    }
+    fn inst_group(&self, inst: &str) -> std::result::Result<Option<String>, String> {
+        Ok(opt(self.inst_get_group(inst)))
+    }
+    fn inst_iterms(&self, inst: &str) -> std::result::Result<Vec<(String, String)>, String> {
+        Ok(e(self.inst_iterm_info(inst))?.into_iter().map(|(m, io, _)| (m, io)).collect())
+    }
+    fn iterm_net(&self, inst: &str, mterm: &str) -> std::result::Result<Option<String>, String> {
+        Ok(opt(self.iterm_get_net(inst, mterm)))
+    }
+    fn net_iterms(&self, net: &str) -> std::result::Result<Vec<(String, String)>, String> {
+        e(self.net_iterm_pairs(net))
+    }
+    fn level_shifter_cells(&self) -> std::result::Result<Vec<String>, String> {
+        Ok(self.block_get_level_shifters().iter().map(|ls| self.level_shifter_get_cell_name(ls)).collect())
+    }
+    fn exists(&self, kind: &str, name: &str) -> std::result::Result<bool, String> {
+        e(self.upf_find(kind, name))
+    }
+    fn isolation(&self, iso: &str) -> std::result::Result<crate::eval::IsolationRule, String> {
+        Ok(crate::eval::IsolationRule {
+            applies_to: self.isolation_get_applies_to(iso),
+            clamp_value: self.isolation_get_clamp_value(iso),
+            isolation_signal: self.isolation_get_isolation_signal(iso),
+            isolation_sense: self.isolation_get_isolation_sense(iso),
+            location: self.isolation_get_location(iso),
+            cells: e(self.isolation_cell_masters(iso))?,
+        })
+    }
+    fn level_shifter(&self, ls: &str) -> std::result::Result<crate::eval::ShiftRule, String> {
+        Ok(crate::eval::ShiftRule {
+            elements: e(self.level_shifter_list(ls, "elements"))?,
+            exclude_elements: e(self.level_shifter_list(ls, "exclude_elements"))?,
+            force_shift: self.level_shifter_is_force_shift(ls),
+            no_shift: self.level_shifter_is_no_shift(ls),
+            rule: self.level_shifter_get_rule(ls),
+            threshold: self.level_shifter_get_threshold(ls),
+            applies_to: self.level_shifter_get_applies_to(ls),
+            location: self.level_shifter_get_location(ls),
+            cell_name: self.level_shifter_get_cell_name(ls),
+            cell_input: self.level_shifter_get_cell_input(ls),
+            cell_output: self.level_shifter_get_cell_output(ls),
+        })
+    }
+    fn masters(&self) -> std::result::Result<Vec<String>, String> {
+        e(self.masters_in_lib_order())
+    }
+    fn master_mterms(&self, master: &str) -> std::result::Result<Vec<(String, String)>, String> {
+        e(self.master_mterm_io(master))
+    }
+    fn master_area(&self, master: &str) -> std::result::Result<i64, String> {
+        e(Db::master_area(self, master))
     }
     fn module_children(&self, module: &str) -> std::result::Result<Vec<(String, String)>, String> {
         e(self.module_children_paths(module))
@@ -302,5 +366,14 @@ impl crate::eval::EvalStore for Db {
     }
     fn group_add_inst(&mut self, group: &str, inst: &str) -> std::result::Result<(), String> {
         e(Db::group_add_inst(self, group, inst))
+    }
+    fn inst_create(&mut self, master: &str, name: &str) -> std::result::Result<bool, String> {
+        e(self.inst_try_create(master, name))
+    }
+    fn connect(&mut self, inst: &str, mterm: &str, net: &str) -> std::result::Result<(), String> {
+        e(Db::connect(self, inst, mterm, net))
+    }
+    fn disconnect(&mut self, inst: &str, mterm: &str) -> std::result::Result<(), String> {
+        e(Db::disconnect(self, inst, mterm))
     }
 }

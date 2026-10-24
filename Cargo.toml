@@ -17,6 +17,9 @@ vyges-events = { git = "https://github.com/vyges-tools/events", branch = "main",
 # The design database. Optional so the writer can be built and tested without it; ON by default so
 # a plain `cargo test` covers the database read too.
 vyges-opendb = { git = "https://github.com/vyges-tools/opendb.git", branch = "main", optional = true, features = ["gen-write"] }
+# Liberty, for cell insertion: which cells are inverters, cell areas, the isolation pin flags and
+# the output function trees. The timer's reader, because it reads these as the reference does.
+vyges-sta = { git = "https://github.com/vyges-tools/sta.git", branch = "main" }
 
 [features]
 default = ["odb"]
@@ -38,3 +41,6 @@ vyges-opendb = { path = "../vyges-tools-opendb" }
 
 [patch."https://github.com/vyges-tools/opendb-lib.git"]
 vyges-opendb-lib = { path = "../vyges-tools-opendb-lib" }
+
+[patch."https://github.com/vyges-tools/sta.git"]
+vyges-sta = { path = "../vyges-tools-sta" }

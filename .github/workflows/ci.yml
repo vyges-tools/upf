@@ -43,6 +43,10 @@ jobs:
         with:
           repository: vyges-tools/opendb-lib
           path: vyges-tools-opendb-lib
+      - uses: actions/checkout@v7
+        with:
+          repository: vyges-tools/sta
+          path: vyges-tools-sta
       - uses: dtolnay/rust-toolchain@stable
       - name: Test
         run: cargo test --no-default-features --lib --verbose
@@ -65,6 +69,10 @@ jobs:
         with:
           repository: vyges-tools/opendb-lib
           path: vyges-tools-opendb-lib
+      - uses: actions/checkout@v7
+        with:
+          repository: vyges-tools/sta
+          path: vyges-tools-sta
 
       - name: Toolchain
         # Boost (headers) + zlib only; fmt/spdlog/abseil are built from source by libodb's build.

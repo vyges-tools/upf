@@ -9,6 +9,10 @@
 //! database read lives in [`odb`], behind the `odb` feature, and nothing here needs a database to
 //! be tested.
 
+// The crate's own name inside it: the command-line entry ([`cli_main`]) is built into the
+// library too, and its `vyges_upf::…` paths resolve here.
+extern crate self as vyges_upf;
+
 #[cfg(feature = "odb")]
 pub mod odb;
 
@@ -496,3 +500,10 @@ mod tests {
         );
     }
 }
+
+/// The `vyges-upf` command-line entry (the binary's `main`), built into the library too so a
+/// suite binary can link every engine and run the one it is invoked as.
+#[cfg(feature = "suite")]
+#[doc(hidden)]
+#[path = "main.rs"]
+pub mod cli_main;

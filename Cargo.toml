@@ -24,6 +24,9 @@ vyges-sta = { git = "https://github.com/vyges-tools/sta.git", branch = "main" }
 [features]
 default = ["odb"]
 odb = ["dep:vyges-opendb"]
+# The command-line entry built into the library too (`cli_main`), for the suite binaries
+# that link every engine and run the one they are invoked as.
+suite = ["odb"]
 
 [[bin]]
 name = "vyges-upf"

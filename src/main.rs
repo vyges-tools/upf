@@ -269,7 +269,7 @@ fn input_error(msg: &str) -> ExitCode {
     ExitCode::from(2)
 }
 
-fn main() -> ExitCode {
+pub fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         None | Some("-h") | Some("--help") => {

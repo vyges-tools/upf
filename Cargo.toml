@@ -1,6 +1,6 @@
 [package]
 name = "vyges-upf"
-version = "0.1.50"
+version = "0.1.51"
 edition = "2021"
 description = "Power intent (UPF) for designs with several power domains: domains, isolation, level shifters, power switches."
 license = "Apache-2.0"

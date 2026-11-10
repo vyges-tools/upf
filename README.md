@@ -1,7 +1,5 @@
 # vyges-upf
 
-**[Download Loom](https://vyges.com/products/vyges-cli/#install)** · install the free [Vyges CLI](https://vyges.com/products/vyges-cli/), then `vyges install physical`
-
 Power intent (UPF) for designs with several power domains: domains, isolation, level shifters, power switches.
 
 > **Status: in development.** `run`, `write` and `eval` are built. A UPF file is Tcl: a variable or command
